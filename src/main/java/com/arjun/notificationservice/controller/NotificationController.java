@@ -26,6 +26,7 @@ import com.arjun.notificationservice.dto.NotificationResponse;
 public class NotificationController {
 private final NotificationService notificationService;
 
+
 @PostMapping
     public ResponseEntity<NotificationResponse> createNotification(@Valid @RequestBody CreateNotificationRequest request)
 {
@@ -74,6 +75,13 @@ public ResponseEntity<Page<NotificationResponse>> getNotification(@PathVariable 
                 notificationService.getUnreadNotifications(receiverId, pageable);
 
         return ResponseEntity.ok(notifications);
+    }
+    @GetMapping("/{receiverId}/unread/count")
+    public ResponseEntity<Long> getUnreadCount(@PathVariable Long receiverId)
+    {
+        return ResponseEntity.ok(
+                notificationService.getUnreadCount(receiverId)
+        );
     }
 
 

@@ -1,16 +1,20 @@
     package com.arjun.notificationservice.service;
 
+
     import com.arjun.notificationservice.dto.CreateNotificationRequest;
     import com.arjun.notificationservice.dto.NotificationResponse;
     import com.arjun.notificationservice.entity.Notification;
     import com.arjun.notificationservice.enums.NotificationStatus;
     import com.arjun.notificationservice.exception.NotificationNotFoundException;
     import com.arjun.notificationservice.repository.NotificationRepository;
+    import jakarta.transaction.Transactional;
     import lombok.RequiredArgsConstructor;
     import org.springframework.data.domain.Page;
     import org.springframework.data.domain.PageRequest;
     import org.springframework.data.domain.Pageable;
+    import org.springframework.data.redis.core.RedisTemplate;
     import org.springframework.stereotype.Service;
+    import com.arjun.notificationservice.service.NotificationProducer;
 
     import java.time.LocalDateTime;
     import java.util.*;
@@ -19,6 +23,26 @@
     @RequiredArgsConstructor
     public class NotificationService {
         private final NotificationRepository notificationRepository;
+        private final RedisTemplate<String, String> redisTemplate;
+        private final NotificationProducer notificationProducer;
+
+        public  long getUnreadCount(Long receiverId)
+        {
+            String key= "notification:unread:"+receiverId;
+            String cachedCount= redisTemplate.opsForValue().get(key);
+            if(cachedCount !=null)
+            {
+                System.out.print("Redis hit");
+                return Long.parseLong(cachedCount);
+            }
+            else
+            {
+                System.out.print("Redis miss ");
+                Long count= notificationRepository.countByReceiverIdAndStatus(receiverId,NotificationStatus.UNREAD);
+                redisTemplate.opsForValue().set(key, String.valueOf(count));
+                return count;
+            }
+        }
 
         public NotificationResponse createNotification(CreateNotificationRequest request)
         {
@@ -31,7 +55,10 @@
             notification.setCreatedAt(LocalDateTime.now());
             notification.setStatus(NotificationStatus.UNREAD);
 
-             notificationRepository.save(notification);
+            Notification savedNotification = notificationRepository.save(notification);
+             String key= "notification:unread:"+ request.getReceiverId();
+             redisTemplate.delete(key);
+            notificationProducer.publishNotificationCreated(savedNotification.getId());
              return mapToResponse(notification);
         }
         public Page<NotificationResponse> getNotificationByReceiverId(Long receiverId, Pageable pageable)
@@ -50,13 +77,18 @@
             return notifications.map(this::mapToResponse);
 
         }
+
         public Notification markAsread(Long id)
         {
             Optional<Notification> optionalNotification= notificationRepository.findById(id);
             if(optionalNotification.isPresent()) {
                 Notification notification = optionalNotification.get();
                 notification.setStatus(NotificationStatus.READ);
-                return notificationRepository.save(notification);
+                notificationRepository.save(notification);
+                String key = "notification:unread:" + notification.getReceiverId();
+                redisTemplate.delete(key);
+                return notification;
+
             }
             else{
                 throw new NotificationNotFoundException("Notification not found:" + id);
@@ -69,6 +101,11 @@
             {
                 Notification notification= optionalNotification.get();
                 notificationRepository.delete(notification);
+                if(notification.getStatus()==NotificationStatus.UNREAD)
+                {
+                    String key="notification:unread:"+notification.getReceiverId();
+                    redisTemplate.delete(key);
+                }
             }
             else
             {

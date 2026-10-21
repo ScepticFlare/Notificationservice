@@ -28,6 +28,8 @@ public class Notification {
     private NotificationStatus status;
     @Enumerated(EnumType.STRING)
     private NotificationType type;
+    @Version
+    private Long version;
 
 
 }
